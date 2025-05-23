@@ -12,6 +12,8 @@ inputs:
     type: string
   module:
     type: string 
+  acr:
+    type: string
   registry_login_server:
     required: true
     type: string
@@ -35,16 +37,17 @@ runs:
       - name: Create Latest manifest and push to registry
         shell: bash
         run: |
-            docker manifest create iqgeoproddev.azurecr.io/$MODULE:$VERSION \
-                iqgeoproddev.azurecr.io/$MODULE:$AMD_TAG \
-                iqgeoproddev.azurecr.io/$MODULE:$ARM_TAG
-            docker manifest annotate iqgeoproddev.azurecr.io/$MODULE:$VERSION \
-                iqgeoproddev.azurecr.io/$MODULE:$AMD_TAG --os linux --arch amd64
-            docker manifest annotate iqgeoproddev.azurecr.io/$MODULE:$VERSION \
-                iqgeoproddev.azurecr.io/$MODULE:$ARM_TAG --os linux --arch arm64
-            docker manifest push iqgeoproddev.azurecr.io/$MODULE:$VERSION
+            docker manifest create $ACR/$MODULE:$VERSION \
+                $ACR/$MODULE:$AMD_TAG \
+                $ACR/$MODULE:$ARM_TAG
+            docker manifest annotate $ACR/$MODULE:$VERSION \
+                $ACR/$MODULE:$AMD_TAG --os linux --arch amd64
+            docker manifest annotate $ACR/$MODULE:$VERSION \
+                $ACR/$MODULE:$ARM_TAG --os linux --arch arm64
+            docker manifest push $ACR/$MODULE:$VERSION
         env:
           VERSION: ${{ inputs.version }}
           AMD_TAG: ${{ inputs.amd_tag }}
           ARM_TAG: ${{ inputs.arm_tag }}
           MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
