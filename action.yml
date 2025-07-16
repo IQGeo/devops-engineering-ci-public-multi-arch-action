@@ -51,3 +51,15 @@ runs:
           ARM_TAG: ${{ inputs.arm_tag }}
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
+
+      - name: Re-tag images
+        shell: bash
+        run: |
+          for tag in $NEW_TAGS; do
+            docker tag $OLD_IMAGE $NEW_IMAGE_BASE:$tag
+            docker push $NEW_IMAGE_BASE:$tag
+          done
+        env:
+          OLD_IMAGE: ${{ inputs.acr }}/${{ inputs.module }}:${{ inputs.version }}
+          NEW_IMAGE_BASE: ${{ inputs.acr }}/${{ inputs.module }}
+          NEW_TAGS: "latest 9.9.99 new_tag"
