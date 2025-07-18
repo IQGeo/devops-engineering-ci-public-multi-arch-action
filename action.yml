@@ -57,6 +57,7 @@ runs:
           ACR: ${{ inputs.acr }}
           
       - name: Retag Multi-Arch image
+        shell: bash
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$MODULE:$VERSION
