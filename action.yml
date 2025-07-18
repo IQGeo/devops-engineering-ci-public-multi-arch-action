@@ -4,8 +4,9 @@ inputs:
   version:
     required: true
     type: string
-  tag:
-    type: string
+  updated_tags:
+    description: 'Comma-seperated list of new tags'
+    default: 'latest,newest_tag,9.9.999'
   amd_tag:
     type: string
   arm_tag:
@@ -54,14 +55,19 @@ runs:
           ARM_TAG: ${{ inputs.arm_tag }}
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
-
-      - name: Re-tag images
+          
+      - name: Retag Multi-Arch image
         shell: bash
         run: |
-          for tag in $NEW_TAGS; do
-            docker buildx imagetools create --tag $NEW_IMAGE_BASE:$tag $OLD_IMAGE 
+          IFS=',' read -ra TAGS <<< $NEW_TAGS 
+          SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+          for tag in "${TAGS[@]}"; do
+            TARGET_IMAGE=$ACR/$MODULE:$tag
+            echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
+            docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
           done
         env:
-          OLD_IMAGE: ${{ inputs.acr }}/${{ inputs.module }}:${{ inputs.version }}
-          NEW_IMAGE_BASE: ${{ inputs.acr }}/${{ inputs.module }}
-          NEW_TAGS: "latest 9.9.99 new_tag"
+          VERSION: ${{ inputs.version }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          NEW_TAGS: ${{ inputs.updated_tags }}
