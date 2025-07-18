@@ -4,8 +4,9 @@ inputs:
   version:
     required: true
     type: string
-  tag:
+  tags:
     type: string
+    default: "['latest', '9.9.999', 'new_tag']"
   amd_tag:
     type: string
   arm_tag:
@@ -64,4 +65,4 @@ runs:
         env:
           OLD_IMAGE: ${{ inputs.acr }}/${{ inputs.module }}:${{ inputs.version }}
           NEW_IMAGE_BASE: ${{ inputs.acr }}/${{ inputs.module }}
-          NEW_TAGS: "latest 9.9.99 new_tag"
+          NEW_TAGS: ${{ fromJson(inputs.tags) }}
