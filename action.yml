@@ -4,8 +4,9 @@ inputs:
   version:
     required: true
     type: string
-  tag:
-    type: string
+  updated_tags:
+    description: 'Comma-seperated list of new tags'
+    default: 'latest,newest_tag,9.9.999'
   amd_tag:
     type: string
   arm_tag:
@@ -55,27 +56,30 @@ runs:
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
           
-      - name: Define meta tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          # list of Docker images to use as base name for tags
-          # images: |
-          #   $ACR/$MODULE:$VERSION
-          # generate Docker tags based on the following events/attributes
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-
-      - name: Re-tag images
-        shell: bash
+      - name: Retag Multi-Arch image
         run: |
-          for tag in $NEW_TAGS; do
-            docker buildx imagetools create --tag $NEW_IMAGE_BASE:$tag $OLD_IMAGE 
+          IFS=',' read -ra TAGS <<< $NEW_TAGS 
+          SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+          for tag in "${TAGS[@]}"; do
+            TARGET_IMAGE=$ACR/$MODULE:$tag
+            echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
+            docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
           done
         env:
-          OLD_IMAGE: ${{ inputs.acr }}/${{ inputs.module }}:${{ inputs.version }}
-          NEW_IMAGE_BASE: ${{ inputs.acr }}/${{ inputs.module }}
-          NEW_TAGS: ${{ steps.meta.outputs.tags }}
+          VERSION: ${{ inputs.version }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          NEW_TAGS: ${{ inputs.updated_tags }}
+
+
+
+      # - name: Re-tag images
+      #   shell: bash
+      #   run: |
+      #     for tag in $NEW_TAGS; do
+      #       docker buildx imagetools create --tag $NEW_IMAGE_BASE:$tag $OLD_IMAGE 
+      #     done
+      #   env:
+      #     OLD_IMAGE: ${{ inputs.acr }}/${{ inputs.module }}:${{ inputs.version }}
+      #     NEW_IMAGE_BASE: ${{ inputs.acr }}/${{ inputs.module }}
+      #     NEW_TAGS: ${{ steps.meta.outputs.tags }}
