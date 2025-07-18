@@ -4,9 +4,8 @@ inputs:
   version:
     required: true
     type: string
-  tags:
+  tag:
     type: string
-    default: "['latest', '9.9.999', 'new_tag']"
   amd_tag:
     type: string
   arm_tag:
@@ -55,6 +54,20 @@ runs:
           ARM_TAG: ${{ inputs.arm_tag }}
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
+          
+      - name: Define meta tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # list of Docker images to use as base name for tags
+          # images: |
+          #   $ACR/$MODULE:$VERSION
+          # generate Docker tags based on the following events/attributes
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - name: Re-tag images
         shell: bash
@@ -65,4 +78,4 @@ runs:
         env:
           OLD_IMAGE: ${{ inputs.acr }}/${{ inputs.module }}:${{ inputs.version }}
           NEW_IMAGE_BASE: ${{ inputs.acr }}/${{ inputs.module }}
-          NEW_TAGS: ${{ fromJson(inputs.tags) }}
+          NEW_TAGS: ${{ steps.meta.outputs.tags }}
