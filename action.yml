@@ -31,17 +31,27 @@ inputs:
     type: string
   registry_password:
     required: true
-    type: string  
+    type: string
+  harbor_cli_secret:
+    type: string
+  harbor_username:
+    type: string
 
 runs:
     using: "composite"
     steps:
-      - name: 'login to ACR'
-        uses: azure/docker-login@v1
-        with:
-          login-server: ${{ inputs.registry_login_server }}
-          username: ${{ inputs.registry_username }}
-          password: ${{ inputs.registry_password }}
+      - name: login to container registries
+        shell: bash
+        run: |
+          docker login -u $REGISTRY_USERNAME -p $REGISTRY_PASWORD $REGISTRY_LOGIN_SERVER
+          docker login -u $HARBOR_USERNAME -p $HARBOR_CLI_SECRET $HARBOR
+        env:
+          HARBOR_CLI_SECRET: ${{ inputs.harbor_cli_secret }}
+          HARBOR_USERNAME: ${{ inputs.harbor_username }}
+          HARBOR: ${{ inputs.harbor }}
+          REGISTRY_LOGIN_SERVER: ${{ inputs.registry_login_server }}
+          REGISTRY_USERNAME: ${{ inputs.registry_username }}
+          REGISTRY_PASWORD: ${{ inputs.registry_password}}  
           
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -62,7 +72,7 @@ runs:
           AMD_TAG: ${{ inputs.amd_tag }}
           ARM_TAG: ${{ inputs.arm_tag }}
           MODULE: ${{ inputs.module }}
-          ACR: ${{ inputs.acr }}
+          ACR: ${{ inputs.acr }}  
           
       - name: Retag Multi-Arch image for ACR
         shell: bash
