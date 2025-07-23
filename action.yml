@@ -15,6 +15,14 @@ inputs:
     type: string 
   acr:
     type: string
+  harbor:
+    type: string
+  engineering_prefix:
+    type: string
+    default: devops_sandbox_engineering
+  releases_prefix:
+    type: string
+    default: devops_sandbox_releases
   registry_login_server:
     required: true
     type: string
@@ -56,7 +64,7 @@ runs:
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
           
-      - name: Retag Multi-Arch image
+      - name: Retag Multi-Arch image for ACR
         shell: bash
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
@@ -71,3 +79,41 @@ runs:
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
           NEW_TAGS: ${{ inputs.updated_tags }}
+
+      - name: Retag Multi-Arch image for Harbor engineering
+        shell: bash
+        if: contains(inputs.updated_tags, 'pre-release') || contains(inputs.updated_tags, 'latest')
+        run: |
+          IFS=',' read -ra TAGS <<< $NEW_TAGS 
+          SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+          for tag in "${TAGS[@]}"; do
+            TARGET_IMAGE=$HARBOR/$ENGINEERING_PREFIX/$MODULE:$tag
+            echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
+            docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
+          done
+        env:
+          VERSION: ${{ inputs.version }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          HARBOR: ${{ inputs.harbor }}
+          NEW_TAGS: ${{ inputs.updated_tags }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+      
+      - name: Retag Multi-Arch image for Harbor releases
+        shell: bash
+        if: contains(inputs.updated_tags, 'latest')
+        run: |
+          IFS=',' read -ra TAGS <<< $NEW_TAGS 
+          SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+          for tag in "${TAGS[@]}"; do
+            TARGET_IMAGE=$HARBOR/$RELEASES_PREFIX/$MODULE:$tag
+            echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
+            docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
+          done
+        env:
+          VERSION: ${{ inputs.version }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          HARBOR: ${{ inputs.harbor }}
+          NEW_TAGS: ${{ inputs.updated_tags }}
+          RELEASES_PREFIX: ${{ inputs.releases_prefix }}
