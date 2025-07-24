@@ -95,7 +95,7 @@ runs:
         shell: bash
         if: contains(inputs.updated_tags, 'pre-release') || contains(inputs.updated_tags, 'latest')
         run: |
-          docker manifest push $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION
+          docker buildx imagetools create --tag $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
@@ -116,7 +116,7 @@ runs:
         shell: bash
         if: contains(inputs.updated_tags, 'latest')
         run: |
-          docker manifest push $HARBOR/$RELEASES_PREFIX/$MODULE:$VERSION
+          docker buildx imagetools create --tag $HARBOR/$RELEASES_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
