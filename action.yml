@@ -67,12 +67,15 @@ runs:
             docker manifest annotate $ACR/$MODULE:$VERSION \
                 $ACR/$MODULE:$ARM_TAG --os linux --arch arm64
             docker manifest push $ACR/$MODULE:$VERSION
+            docker buildx imagetools create --tag $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION
         env:
           VERSION: ${{ inputs.version }}
           AMD_TAG: ${{ inputs.amd_tag }}
           ARM_TAG: ${{ inputs.arm_tag }}
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
+          HARBOR: ${{ inputs.harbor }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
           
       - name: Retag Multi-Arch image for ACR
         shell: bash
@@ -90,12 +93,11 @@ runs:
           ACR: ${{ inputs.acr }}
           NEW_TAGS: ${{ inputs.updated_tags }}
 
-        # added line to push the version to Harbor for pre-release and final builds 
+        # add line to push the version to Harbor engineering for pre-release and final builds 
       - name: Retag Multi-Arch image for Harbor engineering
         shell: bash
         if: contains(inputs.updated_tags, 'pre-release') || contains(inputs.updated_tags, 'latest')
         run: |
-          docker buildx imagetools create --tag $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
@@ -111,12 +113,11 @@ runs:
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
 
-        # added line to push the version to Harbor for final builds 
+        # add line to push the version to Harbor releases for final builds 
       - name: Retag Multi-Arch image for Harbor releases
         shell: bash
         if: contains(inputs.updated_tags, 'latest')
         run: |
-          docker buildx imagetools create --tag $HARBOR/$RELEASES_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
