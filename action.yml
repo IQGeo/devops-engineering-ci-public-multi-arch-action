@@ -72,7 +72,7 @@ runs:
           AMD_TAG: ${{ inputs.amd_tag }}
           ARM_TAG: ${{ inputs.arm_tag }}
           MODULE: ${{ inputs.module }}
-          ACR: ${{ inputs.acr }}  
+          ACR: ${{ inputs.acr }}
           
       - name: Retag Multi-Arch image for ACR
         shell: bash
@@ -90,10 +90,12 @@ runs:
           ACR: ${{ inputs.acr }}
           NEW_TAGS: ${{ inputs.updated_tags }}
 
+        # added line to push the version to Harbor for pre-release and final builds 
       - name: Retag Multi-Arch image for Harbor engineering
         shell: bash
         if: contains(inputs.updated_tags, 'pre-release') || contains(inputs.updated_tags, 'latest')
         run: |
+          docker manifest push $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
@@ -108,11 +110,13 @@ runs:
           HARBOR: ${{ inputs.harbor }}
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
-      
+
+        # added line to push the version to Harbor for final builds 
       - name: Retag Multi-Arch image for Harbor releases
         shell: bash
         if: contains(inputs.updated_tags, 'latest')
         run: |
+          docker manifest push $HARBOR/$RELEASES_PREFIX/$MODULE:$VERSION
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
