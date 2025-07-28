@@ -67,7 +67,6 @@ runs:
             docker manifest annotate $ACR/$MODULE:$VERSION \
                 $ACR/$MODULE:$ARM_TAG --os linux --arch arm64
             docker manifest push $ACR/$MODULE:$VERSION
-            docker buildx imagetools create --tag $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION --provenance=false
         env:
           VERSION: ${{ inputs.version }}
           AMD_TAG: ${{ inputs.amd_tag }}
