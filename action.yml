@@ -56,7 +56,7 @@ runs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         
-      - name: Create Latest manifest and push to registry
+      - name: Create Version manifest and push to Azure and Harbor registries
         shell: bash
         run: |
             docker manifest create $ACR/$MODULE:$VERSION \
@@ -67,7 +67,7 @@ runs:
             docker manifest annotate $ACR/$MODULE:$VERSION \
                 $ACR/$MODULE:$ARM_TAG --os linux --arch arm64
             docker manifest push $ACR/$MODULE:$VERSION
-            docker buildx imagetools create --tag $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION
+            docker buildx imagetools create --tag $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION $ACR/$MODULE:$VERSION --provenance=false
         env:
           VERSION: ${{ inputs.version }}
           AMD_TAG: ${{ inputs.amd_tag }}
