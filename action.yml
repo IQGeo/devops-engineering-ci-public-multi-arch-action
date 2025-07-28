@@ -67,26 +67,9 @@ runs:
             docker manifest annotate $ACR/$MODULE:$VERSION \
                 $ACR/$MODULE:$ARM_TAG --os linux --arch arm64
             docker manifest push $ACR/$MODULE:$VERSION
-        env:
-          VERSION: ${{ inputs.version }}
-          AMD_TAG: ${{ inputs.amd_tag }}
-          ARM_TAG: ${{ inputs.arm_tag }}
-          MODULE: ${{ inputs.module }}
-          ACR: ${{ inputs.acr }}
-          HARBOR: ${{ inputs.harbor }}
-          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
-
-      - name: Create Version manifest and push to Harbor registry
-        shell: bash
-        run: |
-            docker manifest create $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
-                $ACR/$MODULE:$AMD_TAG \
-                $ACR/$MODULE:$ARM_TAG
-            docker manifest annotate $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
-                $ACR/$MODULE:$AMD_TAG --os linux --arch amd64
-            docker manifest annotate $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
-                $ACR/$MODULE:$ARM_TAG --os linux --arch arm64
-            docker manifest push $HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION
+            SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+            TARGET_IMAGE=$HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION
+            docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
         env:
           VERSION: ${{ inputs.version }}
           AMD_TAG: ${{ inputs.amd_tag }}
