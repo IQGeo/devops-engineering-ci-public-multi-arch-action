@@ -115,7 +115,6 @@ runs:
           ACR: ${{ inputs.acr }}
           NEW_TAGS: ${{ inputs.updated_tags }}
 
-        # add line to push the version to Harbor engineering for pre-release and final builds 
       - name: Retag Multi-Arch image for Harbor engineering
         shell: bash
         if: contains(inputs.updated_tags, 'pre-release') || contains(inputs.updated_tags, 'latest')
