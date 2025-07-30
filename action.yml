@@ -1,41 +1,61 @@
-name: 'build multi arch manifest from amd64 & arm64 images'
-description: 'amd64 & arm64 images to create multi arch manifest for deployment'
+name: 'Build Multi Arch manifest'
+description: 'Composite Action to build multi arch manifest from amd64 & arm64 images and push to Azure and Harbor registries'
+
 inputs:
   version:
+    description: 'Version to build'
     required: true
     type: string
   updated_tags:
-    description: 'Comma-seperated list of new tags'
-    default: 'latest,newest_tag,9.9.999'
+    description: 'Comma-seperated list of new tags to retag the multi arch image'
+    required: true
+    type: string
   amd_tag:
+    description: 'Tag used to identify the amd image built for this composite action run to include in the multi arch image manifest (Build ID)'
+    required: true
     type: string
   arm_tag:
+    description: 'Tag used to identify the arm image built for this composite action run to include in the multi arch image manifest (Build ID)'
+    required: true
     type: string
   module:
+    description: 'Module to build (product, devdb, editions)'
+    required: true
     type: string 
   acr:
-    type: string
-  harbor:
-    type: string
-  engineering_prefix:
-    type: string
-    default: devops_sandbox_engineering
-  releases_prefix:
-    type: string
-    default: devops_sandbox_releases
-  registry_login_server:
+    description: 'IQGeos Azure container registry server name'
     required: true
     type: string
   registry_username:
+    description: 'IQGeos Azure container registry username for logging into Azure'
     required: true
     type: string
   registry_password:
+    description: 'IQGeos Azure container registry password for logging into Azure'
+    required: true
+    type: string
+  harbor:
+    description: 'IQGeos Harbor container registry server name'
     required: true
     type: string
   harbor_cli_secret:
+    description: 'IQGeos Harbor container registry password for logging into Azure'
+    required: true
     type: string
   harbor_username:
+    description: 'IQGeos Harbor container registry username for logging into Azure'
+    required: true
     type: string
+  engineering_prefix:
+    description: 'Engineering prefix to place multi arch images in Harbor'
+    required: true
+    type: string
+    default: devops_sandbox_engineering
+  releases_prefix:
+    description: 'Engineering prefix to place multi arch images in Harbor'
+    required: true
+    type: string
+    default: devops_sandbox_releases
 
 runs:
     using: "composite"
@@ -43,13 +63,13 @@ runs:
       - name: login to container registries
         shell: bash
         run: |
-          docker login -u $REGISTRY_USERNAME -p $REGISTRY_PASWORD $REGISTRY_LOGIN_SERVER
+          docker login -u $REGISTRY_USERNAME -p $REGISTRY_PASWORD $ACR
           docker login -u $HARBOR_USERNAME -p $HARBOR_CLI_SECRET $HARBOR
         env:
           HARBOR_CLI_SECRET: ${{ inputs.harbor_cli_secret }}
           HARBOR_USERNAME: ${{ inputs.harbor_username }}
           HARBOR: ${{ inputs.harbor }}
-          REGISTRY_LOGIN_SERVER: ${{ inputs.registry_login_server }}
+          ACR: ${{ inputs.acr }}
           REGISTRY_USERNAME: ${{ inputs.registry_username }}
           REGISTRY_PASWORD: ${{ inputs.registry_password}}  
           
