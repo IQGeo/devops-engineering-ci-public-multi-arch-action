@@ -56,6 +56,10 @@ inputs:
     required: true
     type: string
     default: devops_sandbox_releases
+  is_release:
+    description: 'Whether this is a pre-release or release version'
+    type: string
+    
 
 runs:
     using: "composite"
