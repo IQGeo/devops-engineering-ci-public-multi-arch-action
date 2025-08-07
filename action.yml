@@ -59,7 +59,6 @@ inputs:
   is_release:
     description: 'Whether this is a pre-release or release version'
     type: string
-    
 
 runs:
     using: "composite"
