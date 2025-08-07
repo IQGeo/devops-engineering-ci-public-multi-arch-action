@@ -23,16 +23,7 @@ inputs:
     required: true
     type: string 
   acr:
-    type: string
-  harbor:
-    type: string
-  engineering_prefix:
-    type: string
-    default: devops_sandbox_engineering
-  releases_prefix:
-    type: string
-    default: devops_sandbox_releases
-  registry_login_server:
+    description: 'IQGeos Azure container registry server name'
     required: true
     type: string
   registry_username:
@@ -65,6 +56,9 @@ inputs:
     required: true
     type: string
     default: devops_sandbox_releases
+  is_release:
+    description: 'Whether this is a pre-release or release version'
+    type: string
 
 runs:
     using: "composite"
@@ -142,7 +136,8 @@ runs:
           HARBOR: ${{ inputs.harbor }}
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
-      
+
+        # add line to push the version to Harbor releases for final builds 
       - name: Retag Multi-Arch image for Harbor releases
         shell: bash
         if: contains(inputs.updated_tags, 'latest')
