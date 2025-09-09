@@ -100,7 +100,7 @@ runs:
           HARBOR: ${{ inputs.harbor }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
           
-      - name: Retag Multi-Arch image for ACR
+      - name: Retag Multi-Arch image for ACR engineering
         shell: bash
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
@@ -135,7 +135,25 @@ runs:
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
 
-        # add line to push the version to Harbor releases for final builds 
+      - name: Retag Multi-Arch image for ACR releases
+        shell: bash
+        if: ${{ inputs.is_release == 'true' }}
+        run: |
+          IFS=',' read -ra TAGS <<< $NEW_TAGS 
+          SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
+          for tag in "${TAGS[@]}"; do
+            TARGET_IMAGE=$ACR/$RELEASES_PREFIX/$MODULE:$tag
+            echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
+            docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
+          done
+        env:
+          VERSION: ${{ inputs.version }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          NEW_TAGS: ${{ inputs.updated_tags }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          RELEASES_PREFIX: ${{ inputs.releases_prefix }}
+
       - name: Retag Multi-Arch image for Harbor releases
         shell: bash
         if: ${{ inputs.is_release == 'true' }}
