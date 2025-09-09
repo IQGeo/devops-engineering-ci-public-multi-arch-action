@@ -47,13 +47,11 @@ inputs:
     required: true
     type: string
   engineering_prefix:
-    description: 'Engineering prefix to place multi arch images in Harbor'
-    required: true
+    description: 'Engineering prefix to place multi arch images in ACR & Harbor'
     type: string
     default: devops_sandbox_engineering
   releases_prefix:
-    description: 'Engineering prefix to place multi arch images in Harbor'
-    required: true
+    description: 'Releases prefix to place multi arch images in ACR & Harbor'
     type: string
     default: devops_sandbox_releases
   is_release:
@@ -82,15 +80,15 @@ runs:
       - name: Create Version manifest and push to Azure and Harbor engineering registries
         shell: bash
         run: |
-            docker manifest create $ACR/$MODULE:$VERSION \
-                $ACR/$MODULE:$AMD_TAG \
-                $ACR/$MODULE:$ARM_TAG
-            docker manifest annotate $ACR/$MODULE:$VERSION \
-                $ACR/$MODULE:$AMD_TAG --os linux --arch amd64
-            docker manifest annotate $ACR/$MODULE:$VERSION \
-                $ACR/$MODULE:$ARM_TAG --os linux --arch arm64
-            docker manifest push $ACR/$MODULE:$VERSION
-            SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+            docker manifest create $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
+                $ACR/$ENGINEERING_PREFIX/$MODULE:$AMD_TAG \
+                $ACR/$ENGINEERING_PREFIX/$MODULE:$ARM_TAG
+            docker manifest annotate $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
+                $ACR/$ENGINEERING_PREFIX/$MODULE:$AMD_TAG --os linux --arch amd64
+            docker manifest annotate $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
+                $ACR/$ENGINEERING_PREFIX/$MODULE:$ARM_TAG --os linux --arch arm64
+            docker manifest push $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
+            SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
             TARGET_IMAGE=$HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION
             docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
         env:
@@ -106,9 +104,9 @@ runs:
         shell: bash
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
-          SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+          SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
-            TARGET_IMAGE=$ACR/$MODULE:$tag
+            TARGET_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$tag
             echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
             docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
           done
@@ -117,12 +115,13 @@ runs:
           MODULE: ${{ inputs.module }}
           ACR: ${{ inputs.acr }}
           NEW_TAGS: ${{ inputs.updated_tags }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
 
       - name: Retag Multi-Arch image for Harbor engineering
         shell: bash
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
-          SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+          SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
             TARGET_IMAGE=$HARBOR/$ENGINEERING_PREFIX/$MODULE:$tag
             echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
@@ -142,7 +141,7 @@ runs:
         if: ${{ inputs.is_release == 'true' }}
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
-          SOURCE_IMAGE=$ACR/$MODULE:$VERSION
+          SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
           for tag in "${TAGS[@]}"; do
             TARGET_IMAGE=$HARBOR/$RELEASES_PREFIX/$MODULE:$tag
             echo "Retagging $SOURCE_IMAGE -> $TARGET_IMAGE"
@@ -154,4 +153,5 @@ runs:
           ACR: ${{ inputs.acr }}
           HARBOR: ${{ inputs.harbor }}
           NEW_TAGS: ${{ inputs.updated_tags }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
           RELEASES_PREFIX: ${{ inputs.releases_prefix }}
