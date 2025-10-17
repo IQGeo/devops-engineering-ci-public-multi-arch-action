@@ -61,23 +61,29 @@ inputs:
 runs:
     using: "composite"
     steps:
-      - name: login to container registries
+      - name: login to acr
         shell: bash
         run: |
           docker login -u $REGISTRY_USERNAME -p $REGISTRY_PASWORD $ACR
+        env:
+          ACR: ${{ inputs.acr }}
+          REGISTRY_USERNAME: ${{ inputs.registry_username }}
+          REGISTRY_PASWORD: ${{ inputs.registry_password}}  
+
+      - name: login to harbor
+        shell: bash
+        continue-on-error: true
+        run: |
           docker login -u $HARBOR_USERNAME -p $HARBOR_CLI_SECRET $HARBOR
         env:
           HARBOR_CLI_SECRET: ${{ inputs.harbor_cli_secret }}
           HARBOR_USERNAME: ${{ inputs.harbor_username }}
-          HARBOR: ${{ inputs.harbor }}
-          ACR: ${{ inputs.acr }}
-          REGISTRY_USERNAME: ${{ inputs.registry_username }}
-          REGISTRY_PASWORD: ${{ inputs.registry_password}}  
+          HARBOR: ${{ inputs.harbor }}        
           
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         
-      - name: Create Version manifest and push to Azure and Harbor engineering registries
+      - name: Create Version manifest and push to Azure ACR
         shell: bash
         run: |
             docker manifest create $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
@@ -88,6 +94,19 @@ runs:
             docker manifest annotate $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
                 $ACR/$ENGINEERING_PREFIX/$MODULE:$ARM_TAG --os linux --arch arm64
             docker manifest push $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
+        env:
+          VERSION: ${{ inputs.version }}
+          AMD_TAG: ${{ inputs.amd_tag }}
+          ARM_TAG: ${{ inputs.arm_tag }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          HARBOR: ${{ inputs.harbor }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+
+      - name: Push to Harbor Engineering          
+        shell: bash
+        continue-on-error: true        
+        run: |
             SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
             TARGET_IMAGE=$HARBOR/$ENGINEERING_PREFIX/$MODULE:$VERSION
             docker buildx imagetools create --tag $TARGET_IMAGE $SOURCE_IMAGE
@@ -119,6 +138,7 @@ runs:
 
       - name: Retag Multi-Arch image for Harbor engineering
         shell: bash
+        continue-on-error: true        
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
@@ -156,6 +176,7 @@ runs:
 
       - name: Retag Multi-Arch image for Harbor releases
         shell: bash
+        continue-on-error: true        
         if: ${{ inputs.is_release == 'true' }}
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
