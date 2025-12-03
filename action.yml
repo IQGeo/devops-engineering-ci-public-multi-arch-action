@@ -57,6 +57,9 @@ inputs:
   is_release:
     description: 'Whether this is a pre-release or release version'
     type: string
+  main_module:
+    description: 'Whether this module is the main module (product) or a supporting module (devdb, editions)'
+    type: string
 
 runs:
     using: "composite"
@@ -157,7 +160,7 @@ runs:
 
       - name: Retag Multi-Arch image for ACR releases
         shell: bash
-        if: ${{ inputs.is_release == 'true' }}
+        if: ${{ inputs.is_release == 'true' && inputs.main_module == inputs.module }}
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
@@ -177,7 +180,7 @@ runs:
       - name: Retag Multi-Arch image for Harbor releases
         shell: bash
         continue-on-error: true        
-        if: ${{ inputs.is_release == 'true' }}
+        if: ${{ inputs.is_release == 'true' && inputs.main_module == inputs.module }}
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
