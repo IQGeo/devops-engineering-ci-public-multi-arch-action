@@ -22,6 +22,9 @@ inputs:
     description: 'Module to build (product, devdb, editions)'
     required: true
     type: string 
+  main_module:
+    description: 'Whether this module is the main module (product) or a supporting module (devdb, editions)'
+    type: string
   acr:
     description: 'IQGeos Azure container registry server name'
     required: true
@@ -56,9 +59,6 @@ inputs:
     default: devops_sandbox_releases
   is_release:
     description: 'Whether this is a pre-release or release version'
-    type: string
-  main_module:
-    description: 'Whether this module is the main module (product) or a supporting module (devdb, editions)'
     type: string
 
 runs:
