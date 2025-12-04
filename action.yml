@@ -159,8 +159,6 @@ runs:
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
 
-
-
       - name: Retag Multi-Arch image for ACR releases
         shell: bash
         if: ${{ inputs.is_release == 'true' && contains(inputs.release_modules, inputs.module) }}
