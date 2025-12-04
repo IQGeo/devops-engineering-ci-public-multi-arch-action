@@ -22,8 +22,9 @@ inputs:
     description: 'Module to build (product, devdb, editions)'
     required: true
     type: string 
-  main_module:
-    description: 'Whether this module is the main module (product) or a supporting module (devdb, editions)'
+  release_modules:
+    description: 'Comma-separated list of modules to include in release repostitories'
+    required: true
     type: string
   acr:
     description: 'IQGeos Azure container registry server name'
@@ -158,9 +159,11 @@ runs:
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
 
+
+
       - name: Retag Multi-Arch image for ACR releases
         shell: bash
-        if: ${{ inputs.is_release == 'true' && inputs.main_module == inputs.module }}
+        if: ${{ inputs.is_release == 'true' && contains(inputs.release_modules, inputs.module) }}
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
@@ -180,7 +183,7 @@ runs:
       - name: Retag Multi-Arch image for Harbor releases
         shell: bash
         continue-on-error: true        
-        if: ${{ inputs.is_release == 'true' && inputs.main_module == inputs.module }}
+        if: ${{ inputs.is_release == 'true' && contains(inputs.release_modules, inputs.module) }}
         run: |
           IFS=',' read -ra TAGS <<< $NEW_TAGS 
           SOURCE_IMAGE=$ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
