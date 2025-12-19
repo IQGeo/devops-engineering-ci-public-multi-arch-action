@@ -24,9 +24,9 @@ inputs:
     type: string 
   release_modules:
     description: 'Comma-separated list of modules to include in release repostitories'
-    required: true
+    required: false
     type: string
-    default: 'none'
+    default: ''  # An empty string means no modules are included in release repositories
   acr:
     description: 'IQGeos Azure container registry server name'
     required: true
