@@ -107,12 +107,19 @@ runs:
           HARBOR: ${{ inputs.harbor }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
 
-      - name: Attest multi-arch manifest provenance
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-name: ${{ inputs.acr }}/${{ inputs.engineering_prefix }}/${{ inputs.module }}
-          subject-digest: ${{ steps.manifest.outputs.digest }}
-          push-to-registry: true
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign multi-arch manifest with cosign keyless
+        shell: bash
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          ACR: ${{ inputs.acr }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          MODULE: ${{ inputs.module }}
+        run: |
+          cosign sign --yes \
+            "${ACR}/${ENGINEERING_PREFIX}/${MODULE}@${DIGEST}"
 
       - name: Push to Harbor Engineering          
         shell: bash
