@@ -110,6 +110,34 @@ runs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate SBOM from multi-arch manifest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          ACR: ${{ inputs.acr }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          MODULE: ${{ inputs.module }}
+        run: |
+          syft "registry:${ACR}/${ENGINEERING_PREFIX}/${MODULE}@${DIGEST}" \
+            --output spdx-json \
+            > /tmp/sbom.spdx.json
+
+      - name: Attach SBOM attestation to multi-arch manifest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          ACR: ${{ inputs.acr }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          MODULE: ${{ inputs.module }}
+        run: |
+          cosign attest --yes \
+            --predicate /tmp/sbom.spdx.json \
+            --type spdxjson \
+            "${ACR}/${ENGINEERING_PREFIX}/${MODULE}@${DIGEST}"
+
       - name: Sign multi-arch manifest with cosign keyless
         shell: bash
         env:
