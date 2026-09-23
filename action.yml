@@ -87,7 +87,13 @@ runs:
           
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install oras
+        uses: oras-project/setup-oras@v1
+
       - name: Create Version manifest and push to Azure ACR
         id: manifest
         shell: bash
@@ -106,20 +112,6 @@ runs:
           ACR: ${{ inputs.acr }}
           HARBOR: ${{ inputs.harbor }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign multi-arch manifest with cosign keyless
-        shell: bash
-        env:
-          DIGEST: ${{ steps.manifest.outputs.digest }}
-          ACR: ${{ inputs.acr }}
-          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
-          MODULE: ${{ inputs.module }}
-        run: |
-          cosign sign --yes \
-            "${ACR}/${ENGINEERING_PREFIX}/${MODULE}@${DIGEST}"
 
       - name: Push to Harbor Engineering          
         shell: bash
@@ -212,3 +204,84 @@ runs:
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
           RELEASES_PREFIX: ${{ inputs.releases_prefix }}
+
+      # `imagetools create` copies the image index only. Cosign signatures and ORAS
+      # referrers live in the repository they were pushed to, so every ACR/Harbor
+      # copy has to be signed and have the SBOM attached individually.
+      - name: Sign and attach SBOM in every registry repository
+        shell: bash
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          VERSION: ${{ inputs.version }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          HARBOR: ${{ inputs.harbor }}
+          NEW_TAGS: ${{ inputs.updated_tags }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          RELEASES_PREFIX: ${{ inputs.releases_prefix }}
+          IS_RELEASE_TARGET: ${{ inputs.is_release == 'true' && contains(inputs.release_modules, inputs.module) }}
+        run: |
+          set -uo pipefail
+
+          IFS=',' read -ra TAGS <<< "$NEW_TAGS"
+          RELEASE_TAG="${TAGS[0]:-$VERSION}"
+
+          # repo|tag pairs: the releases repos never carry the raw :$VERSION tag.
+          TARGETS=(
+            "$ACR/$ENGINEERING_PREFIX/$MODULE|$VERSION"
+            "$HARBOR/$ENGINEERING_PREFIX/$MODULE|$VERSION"
+          )
+          if [ "$IS_RELEASE_TARGET" = "true" ]; then
+            TARGETS+=(
+              "$ACR/$RELEASES_PREFIX/$MODULE|$RELEASE_TAG"
+              "$HARBOR/$RELEASES_PREFIX/$MODULE|$RELEASE_TAG"
+            )
+          fi
+
+          # BuildKit stores the SBOM as an in-index attestation. Export it once so the
+          # same documents can be attached as referrers to each copy.
+          mkdir -p sboms
+          docker buildx imagetools inspect "$ACR/$ENGINEERING_PREFIX/$MODULE@$DIGEST" \
+            --format '{{json .SBOM}}' > sbom-raw.json
+          if jq -e 'has("SPDX")' sbom-raw.json > /dev/null 2>&1; then
+            jq '.SPDX' sbom-raw.json > sboms/image.spdx.json
+          else
+            for plat in $(jq -r 'keys[]' sbom-raw.json); do
+              jq --arg p "$plat" '.[$p].SPDX' sbom-raw.json > "sboms/${plat//\//-}.spdx.json"
+            done
+          fi
+
+          SBOM_ARGS=()
+          for f in sboms/*.spdx.json; do
+            [ -s "$f" ] || continue
+            SBOM_ARGS+=("$f:application/spdx+json")
+          done
+          if [ ${#SBOM_ARGS[@]} -eq 0 ]; then
+            echo "::error::No SBOM found on $ACR/$ENGINEERING_PREFIX/$MODULE@$DIGEST"
+            exit 1
+          fi
+
+          failed_primary=0
+          for target in "${TARGETS[@]}"; do
+            repo="${target%%|*}"
+            tag="${target##*|}"
+
+            # imagetools create may re-serialise the index, so resolve each copy's own digest.
+            digest=$(docker buildx imagetools inspect "$repo:$tag" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest')
+            if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+              echo "::warning::Skipping $repo:$tag - not present in registry"
+              [ "$repo" = "$ACR/$ENGINEERING_PREFIX/$MODULE" ] && failed_primary=1
+              continue
+            fi
+
+            echo "Signing and attaching SBOM to $repo@$digest"
+            if cosign sign --yes "$repo@$digest" &&
+               oras attach --artifact-type application/spdx+json "$repo@$digest" "${SBOM_ARGS[@]}"; then
+              continue
+            fi
+
+            echo "::warning::Failed to sign or attach SBOM for $repo@$digest"
+            [ "$repo" = "$ACR/$ENGINEERING_PREFIX/$MODULE" ] && failed_primary=1
+          done
+
+          exit $failed_primary
