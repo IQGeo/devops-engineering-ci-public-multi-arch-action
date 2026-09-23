@@ -238,29 +238,49 @@ runs:
             )
           fi
 
-          # BuildKit stores the SBOM as an in-index attestation. Export it once so the
-          # same documents can be attached as referrers to each copy.
+          # BuildKit stores the SBOM as an in-index attestation. Export one SPDX
+          # document per platform so it can be re-attached as a referrer everywhere.
+          SRC="$ACR/$ENGINEERING_PREFIX/$MODULE@$DIGEST"
           mkdir -p sboms
-          docker buildx imagetools inspect "$ACR/$ENGINEERING_PREFIX/$MODULE@$DIGEST" \
-            --format '{{json .SBOM}}' > sbom-raw.json
-          if jq -e 'has("SPDX")' sbom-raw.json > /dev/null 2>&1; then
-            jq '.SPDX' sbom-raw.json > sboms/image.spdx.json
-          else
-            for plat in $(jq -r 'keys[]' sbom-raw.json); do
-              jq --arg p "$plat" '.[$p].SPDX' sbom-raw.json > "sboms/${plat//\//-}.spdx.json"
-            done
-          fi
+          docker buildx imagetools inspect "$SRC" --format '{{json .SBOM}}' > sbom-raw.json
+          docker buildx imagetools inspect "$SRC" --raw \
+            | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)\t\(.digest)"' \
+            > children.tsv
 
-          SBOM_ARGS=()
-          for f in sboms/*.spdx.json; do
-            [ -s "$f" ] || continue
-            SBOM_ARGS+=("$f:application/spdx+json")
-          done
-          if [ ${#SBOM_ARGS[@]} -eq 0 ]; then
-            echo "::error::No SBOM found on $ACR/$ENGINEERING_PREFIX/$MODULE@$DIGEST"
+          INDEX_ARGS=()
+          while IFS=$'\t' read -r plat child; do
+            [ -n "$child" ] || continue
+            doc="sboms/${plat//\//-}.spdx.json"
+            if jq -e 'has("SPDX")' sbom-raw.json > /dev/null 2>&1; then
+              jq '.SPDX' sbom-raw.json > "$doc"
+            else
+              jq --arg p "$plat" '.[$p].SPDX' sbom-raw.json > "$doc"
+            fi
+            if [ ! -s "$doc" ] || [ "$(cat "$doc")" = "null" ]; then
+              echo "::warning::No SBOM for $plat"
+              rm -f "$doc"
+              continue
+            fi
+            INDEX_ARGS+=("$doc:application/spdx+json")
+          done < children.tsv
+
+          if [ ${#INDEX_ARGS[@]} -eq 0 ]; then
+            echo "::error::No SBOM found on $SRC"
             exit 1
           fi
 
+          # Harbor only shows an SBOM when artifactType is its own media type; the
+          # spdx+json copy keeps the referrer discoverable in every other registry.
+          attach() {
+            local ref=$1; shift
+            local artifact_type rc=0
+            for artifact_type in application/vnd.goharbor.harbor.sbom.v1 application/spdx+json; do
+              oras attach --artifact-type "$artifact_type" "$ref" "$@" || rc=1
+            done
+            return $rc
+          }
+
+          PRIMARY="$ACR/$ENGINEERING_PREFIX/$MODULE"
           failed_primary=0
           for target in "${TARGETS[@]}"; do
             repo="${target%%|*}"
@@ -270,18 +290,26 @@ runs:
             digest=$(docker buildx imagetools inspect "$repo:$tag" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest')
             if [ -z "$digest" ] || [ "$digest" = "null" ]; then
               echo "::warning::Skipping $repo:$tag - not present in registry"
-              [ "$repo" = "$ACR/$ENGINEERING_PREFIX/$MODULE" ] && failed_primary=1
+              [ "$repo" = "$PRIMARY" ] && failed_primary=1
               continue
             fi
 
             echo "Signing and attaching SBOM to $repo@$digest"
-            if cosign sign --yes "$repo@$digest" &&
-               oras attach --artifact-type application/spdx+json "$repo@$digest" "${SBOM_ARGS[@]}"; then
-              continue
-            fi
+            rc=0
+            cosign sign --yes "$repo@$digest" || rc=1
+            attach "$repo@$digest" "${INDEX_ARGS[@]}" || rc=1
 
-            echo "::warning::Failed to sign or attach SBOM for $repo@$digest"
-            [ "$repo" = "$ACR/$ENGINEERING_PREFIX/$MODULE" ] && failed_primary=1
+            # Also per-platform, so the amd64/arm64 rows resolve an SBOM of their own.
+            while IFS=$'\t' read -r plat child; do
+              doc="sboms/${plat//\//-}.spdx.json"
+              [ -s "$doc" ] || continue
+              attach "$repo@$child" "$doc:application/spdx+json" || rc=1
+            done < children.tsv
+
+            if [ $rc -ne 0 ]; then
+              echo "::warning::Failed to sign or attach SBOM for $repo@$digest"
+              [ "$repo" = "$PRIMARY" ] && failed_primary=1
+            fi
           done
 
           exit $failed_primary
