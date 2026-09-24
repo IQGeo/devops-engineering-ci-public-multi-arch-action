@@ -299,9 +299,12 @@ runs:
             cosign sign --yes "$repo@$digest" || rc=1
             attach "$repo@$digest" "${INDEX_ARGS[@]}" || rc=1
 
-            # Also per-platform, so the amd64/arm64 rows resolve an SBOM of their own.
+            # Sign and attach an SBOM to each platform child so the amd64/arm64
+            # manifests inside the index are individually signed, not just the index.
             while IFS=$'\t' read -r plat child; do
               doc="sboms/${plat//\//-}.spdx.json"
+              echo "Signing $repo@$child ($plat)"
+              cosign sign --yes "$repo@$child" || rc=1
               [ -s "$doc" ] || continue
               attach "$repo@$child" "$doc:application/spdx+json" || rc=1
             done < children.tsv
