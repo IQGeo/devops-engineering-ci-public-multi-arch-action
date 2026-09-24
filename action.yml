@@ -87,18 +87,23 @@ runs:
           
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install oras
+        uses: oras-project/setup-oras@v1
+
       - name: Create Version manifest and push to Azure ACR
+        id: manifest
         shell: bash
         run: |
-            docker manifest create $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
-                $ACR/$ENGINEERING_PREFIX/$MODULE:$AMD_TAG \
-                $ACR/$ENGINEERING_PREFIX/$MODULE:$ARM_TAG
-            docker manifest annotate $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
-                $ACR/$ENGINEERING_PREFIX/$MODULE:$AMD_TAG --os linux --arch amd64
-            docker manifest annotate $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
-                $ACR/$ENGINEERING_PREFIX/$MODULE:$ARM_TAG --os linux --arch arm64
-            docker manifest push $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION
+            docker buildx imagetools create \
+              --tag $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION \
+              $ACR/$ENGINEERING_PREFIX/$MODULE:$AMD_TAG \
+              $ACR/$ENGINEERING_PREFIX/$MODULE:$ARM_TAG
+            DIGEST=$(docker buildx imagetools inspect $ACR/$ENGINEERING_PREFIX/$MODULE:$VERSION --format '{{json .Manifest}}' | jq -r '.digest')
+            echo "digest=$DIGEST" >> $GITHUB_OUTPUT
         env:
           VERSION: ${{ inputs.version }}
           AMD_TAG: ${{ inputs.amd_tag }}
@@ -199,3 +204,131 @@ runs:
           NEW_TAGS: ${{ inputs.updated_tags }}
           ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
           RELEASES_PREFIX: ${{ inputs.releases_prefix }}
+
+      # `imagetools create` copies the image index only. Cosign signatures and ORAS
+      # referrers live in the repository they were pushed to, so every ACR/Harbor
+      # copy has to be signed and have the SBOM attached individually.
+      - name: Sign and attach SBOM in every registry repository
+        shell: bash
+        env:
+          DIGEST: ${{ steps.manifest.outputs.digest }}
+          VERSION: ${{ inputs.version }}
+          MODULE: ${{ inputs.module }}
+          ACR: ${{ inputs.acr }}
+          HARBOR: ${{ inputs.harbor }}
+          NEW_TAGS: ${{ inputs.updated_tags }}
+          ENGINEERING_PREFIX: ${{ inputs.engineering_prefix }}
+          RELEASES_PREFIX: ${{ inputs.releases_prefix }}
+          IS_RELEASE_TARGET: ${{ inputs.is_release == 'true' && contains(inputs.release_modules, inputs.module) }}
+        run: |
+          set -uo pipefail
+
+          IFS=',' read -ra TAGS <<< "$NEW_TAGS"
+          RELEASE_TAG="${TAGS[0]:-$VERSION}"
+
+          # repo|tag pairs: the releases repos never carry the raw :$VERSION tag.
+          TARGETS=(
+            "$ACR/$ENGINEERING_PREFIX/$MODULE|$VERSION"
+            "$HARBOR/$ENGINEERING_PREFIX/$MODULE|$VERSION"
+          )
+          if [ "$IS_RELEASE_TARGET" = "true" ]; then
+            TARGETS+=(
+              "$ACR/$RELEASES_PREFIX/$MODULE|$RELEASE_TAG"
+              "$HARBOR/$RELEASES_PREFIX/$MODULE|$RELEASE_TAG"
+            )
+          fi
+
+          # BuildKit stores the SBOM as an in-index attestation. Export one SPDX
+          # document per platform so it can be re-attached as a referrer everywhere.
+          SRC="$ACR/$ENGINEERING_PREFIX/$MODULE@$DIGEST"
+          mkdir -p sboms
+          docker buildx imagetools inspect "$SRC" --format '{{json .SBOM}}' > sbom-raw.json
+          docker buildx imagetools inspect "$SRC" --raw \
+            | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)\t\(.digest)"' \
+            > children.tsv
+
+          INDEX_ARGS=()
+          while IFS=$'\t' read -r plat child; do
+            [ -n "$child" ] || continue
+            doc="sboms/${plat//\//-}.spdx.json"
+            if jq -e 'has("SPDX")' sbom-raw.json > /dev/null 2>&1; then
+              jq '.SPDX' sbom-raw.json > "$doc"
+            else
+              jq --arg p "$plat" '.[$p].SPDX' sbom-raw.json > "$doc"
+            fi
+            if [ ! -s "$doc" ] || [ "$(cat "$doc")" = "null" ]; then
+              echo "::warning::No SBOM for $plat"
+              rm -f "$doc"
+              continue
+            fi
+            INDEX_ARGS+=("$doc:application/spdx+json")
+          done < children.tsv
+
+          if [ ${#INDEX_ARGS[@]} -eq 0 ]; then
+            echo "::error::No SBOM found on $SRC"
+            exit 1
+          fi
+
+          # Harbor only shows an SBOM when artifactType is its own media type; the
+          # spdx+json copy keeps the referrer discoverable in every other registry.
+          attach() {
+            local ref=$1; shift
+            local artifact_type rc=0
+            for artifact_type in application/vnd.goharbor.harbor.sbom.v1 application/spdx+json; do
+              oras attach --artifact-type "$artifact_type" "$ref" "$@" || rc=1
+            done
+            return $rc
+          }
+
+          # cosign requests a fresh GitHub OIDC token per keyless signature; signing
+          # every repo + child in one step hammers the token endpoint, which returns
+          # a non-JSON error intermittently ("invalid character 'u'..."). Fetch one
+          # token up front and reuse it for every signature.
+          COSIGN_ID_TOKEN=$(curl -sSL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" | jq -r '.value')
+          if [ -z "$COSIGN_ID_TOKEN" ] || [ "$COSIGN_ID_TOKEN" = "null" ]; then
+            echo "::error::Failed to fetch GitHub OIDC token for cosign"
+            exit 1
+          fi
+          echo "::add-mask::$COSIGN_ID_TOKEN"
+          sign() {
+            cosign sign --yes --identity-token "$COSIGN_ID_TOKEN" "$@"
+          }
+
+          PRIMARY="$ACR/$ENGINEERING_PREFIX/$MODULE"
+          failed_primary=0
+          for target in "${TARGETS[@]}"; do
+            repo="${target%%|*}"
+            tag="${target##*|}"
+
+            # imagetools create may re-serialise the index, so resolve each copy's own digest.
+            digest=$(docker buildx imagetools inspect "$repo:$tag" --format '{{json .Manifest}}' 2>/dev/null | jq -r '.digest')
+            if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+              echo "::warning::Skipping $repo:$tag - not present in registry"
+              [ "$repo" = "$PRIMARY" ] && failed_primary=1
+              continue
+            fi
+
+            echo "Signing and attaching SBOM to $repo@$digest"
+            rc=0
+            sign "$repo@$digest" || rc=1
+            attach "$repo@$digest" "${INDEX_ARGS[@]}" || rc=1
+
+            # Sign and attach an SBOM to each platform child so the amd64/arm64
+            # manifests inside the index are individually signed, not just the index.
+            while IFS=$'\t' read -r plat child; do
+              doc="sboms/${plat//\//-}.spdx.json"
+              echo "Signing $repo@$child ($plat)"
+              sign "$repo@$child" || rc=1
+              [ -s "$doc" ] || continue
+              attach "$repo@$child" "$doc:application/spdx+json" || rc=1
+            done < children.tsv
+
+            if [ $rc -ne 0 ]; then
+              echo "::warning::Failed to sign or attach SBOM for $repo@$digest"
+              [ "$repo" = "$PRIMARY" ] && failed_primary=1
+            fi
+          done
+
+          exit $failed_primary
