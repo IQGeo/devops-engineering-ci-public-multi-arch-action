@@ -280,6 +280,22 @@ runs:
             return $rc
           }
 
+          # cosign requests a fresh GitHub OIDC token per keyless signature; signing
+          # every repo + child in one step hammers the token endpoint, which returns
+          # a non-JSON error intermittently ("invalid character 'u'..."). Fetch one
+          # token up front and reuse it for every signature.
+          COSIGN_ID_TOKEN=$(curl -sSL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sigstore" | jq -r '.value')
+          if [ -z "$COSIGN_ID_TOKEN" ] || [ "$COSIGN_ID_TOKEN" = "null" ]; then
+            echo "::error::Failed to fetch GitHub OIDC token for cosign"
+            exit 1
+          fi
+          echo "::add-mask::$COSIGN_ID_TOKEN"
+          sign() {
+            cosign sign --yes --identity-token "$COSIGN_ID_TOKEN" "$@"
+          }
+
           PRIMARY="$ACR/$ENGINEERING_PREFIX/$MODULE"
           failed_primary=0
           for target in "${TARGETS[@]}"; do
@@ -296,7 +312,7 @@ runs:
 
             echo "Signing and attaching SBOM to $repo@$digest"
             rc=0
-            cosign sign --yes "$repo@$digest" || rc=1
+            sign "$repo@$digest" || rc=1
             attach "$repo@$digest" "${INDEX_ARGS[@]}" || rc=1
 
             # Sign and attach an SBOM to each platform child so the amd64/arm64
@@ -304,7 +320,7 @@ runs:
             while IFS=$'\t' read -r plat child; do
               doc="sboms/${plat//\//-}.spdx.json"
               echo "Signing $repo@$child ($plat)"
-              cosign sign --yes "$repo@$child" || rc=1
+              sign "$repo@$child" || rc=1
               [ -s "$doc" ] || continue
               attach "$repo@$child" "$doc:application/spdx+json" || rc=1
             done < children.tsv
